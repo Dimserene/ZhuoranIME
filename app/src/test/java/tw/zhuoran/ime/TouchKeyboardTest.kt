@@ -29,6 +29,13 @@ class TouchKeyboardTest {
         active.push('ㄋ'); active.push('ㄧ')
         assertEquals("ㄋㄧ", TouchLayout.pendingText(active, words, CandidateSelection()))
     }
+    @Test fun symbolPageCanTypeEveryAsciiPunctuationIncludingPasswords() {
+        val available = TouchLayout.symbolRows.joinToString("").toSet()
+        for (code in 33..126) {
+            val c = code.toChar()
+            if (!c.isLetter()) assertTrue("Cannot type symbol $c", c in available)
+        }
+    }
     @Test fun touchCompositionSupportsFirstToneAndBackspace() {
         val composer = Composer()
         composer.push('ㄊ'); composer.push('ㄚ')

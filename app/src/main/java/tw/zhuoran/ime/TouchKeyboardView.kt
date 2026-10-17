@@ -113,7 +113,7 @@ internal class TouchKeyboardView(
                     }
                 }
             }
-            TouchMode.SYMBOLS -> listOf("1234567890", "@#\u0024%&*()-+", "!\"':;/?=_.", "[]{}<>\\|~`").forEach { symbols ->
+            TouchMode.SYMBOLS -> TouchLayout.symbolRows.forEach { symbols ->
                 val r = row(height)
                 symbols.forEach { c -> key(r, c.toString(), action = { onText(c.toString()) }) }
             }
