@@ -3,7 +3,6 @@ package tw.zhuoran.ime
 /** Shares standard physical key positions and composition rules with the touch UI. */
 object TouchLayout {
     val zhuyinRows: List<List<Char>> = listOf("1234567890", "qwertyuiop", "asdfghjkl;", "zxcvbnm,./").map { it.toList() }
-    val symbolRows: List<String> = listOf("1234567890", "@#\u0024%&*()-+", "!\"':;/?=_,.", "[]{}<>\\|~`^")
     val erKey: Char = '-'
     fun pendingText(composer: Composer, lexicon: Candidates, selection: CandidateSelection): String {
         if (!composer.hasInput) return ""

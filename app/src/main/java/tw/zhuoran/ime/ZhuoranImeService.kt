@@ -170,7 +170,7 @@ class ZhuoranImeService : InputMethodService() {
         val ic = currentInputConnection ?: return
         if (!ic.getSelectedText(0).isNullOrEmpty()) ic.commitText("", 1)
         else if (!ic.deleteSurroundingTextInCodePoints(1, 0)) {
-            val before = ic.getTextBeforeCursor(2, 0)?.toString().orEmpty()
+            val before = ic.getTextBeforeCursor(2, 0).orEmpty()
             val count = if (before.length >= 2 && Character.isSurrogatePair(before[before.length - 2], before[before.length - 1])) 2 else 1
             ic.deleteSurroundingText(count, 0)
         }
