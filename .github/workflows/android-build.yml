@@ -1,7 +1,7 @@
 name: Build Zhuoran IME APK
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, "work/virtual-keyboard", "work/chewing-engine"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,16 +17,79 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
-      - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install fixed build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
-      - name: Upload debug APK
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.88.0 --profile minimal --component rust-src
+      - name: Verify review tooling
+        run: python3 -m unittest discover -s tools/tests
+      - name: Build native engine and full dictionary
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.2.13676358
+        run: |
+          bash native/build_chewing.sh android
+          bash native/build_host_jni.sh
+          python3 tools/package_assets.py
+      - name: Test keyboard and native contracts
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify APK and package corresponding sources and relink objects
+        run: |
+          python3 tools/check_apk.py app/build/outputs/apk/debug/app-debug.apk --lock third_party/chewing.lock.json --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt"
+          bash tools/package_relink.sh
+          git archive --format=tar.gz -o build/ZhuoranIME-0.13-source.tar.gz HEAD
+      - name: Upload corresponding sources and relink objects
         uses: actions/upload-artifact@v4
         with:
-          name: ZhuoranIME-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: ZhuoranIME-0.13-source-and-relink
+          path: build/*.tar.gz
           if-no-files-found: error
+      - name: Upload debug build and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZhuoranIME-debug-build
+          path: |
+            app/build/outputs/apk/
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: error
+  android-runtime:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ZhuoranIME-debug-build
+          path: build
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install build/outputs/apk/debug/app-debug.apk
+            adb install build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w tw.zhuoran.ime.test/androidx.test.runner.AndroidJUnitRunner | tee runtime.txt
+            python3 -c "from pathlib import Path; s=Path('runtime.txt').read_text(); assert 'OK (' in s and 'FAILURES' not in s and 'INSTRUMENTATION_FAILED' not in s"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-api-${{ matrix.api }}
+          path: runtime.txt

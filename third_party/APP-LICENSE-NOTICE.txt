@@ -1,0 +1,3 @@
+This integration preview permits modification of the application for the user's own use and reverse engineering for debugging modifications to the LGPL-covered components. This permission does not remove the license conditions of third-party components, whose full notices and license texts accompany the application. The exact corresponding sources and native object files for relinking are supplied with the APK.
+
+本整合測試版允許使用者為自行使用而修改應用程式，並為除錯 LGPL 元件的修改進行逆向工程。各第三方元件仍適用其附帶授權條件。APK 應同時提供對應原始碼與可重連結的原生物件檔。

@@ -1,159 +1,100 @@
 package tw.zhuoran.ime
-
-import android.graphics.Color
+import android.content.Context
 import android.inputmethodservice.InputMethodService
-import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.widget.TextView
+import android.view.inputmethod.InputMethodManager
+import java.io.File
+import tw.zhuoran.ime.engine.*
+import tw.zhuoran.ime.editor.*
+import tw.zhuoran.ime.input.*
 
-/** Physical keyboard IME proof of concept. Not yet a production IME. */
-class ZhuoranImeService : InputMethodService() {
-    private val composer = Composer()
-    private val selection = CandidateSelection()
-    private lateinit var lexicon: Candidates
-    private var status: TextView? = null
-    private var candidatesView: TextView? = null
-    private var secureField = false
-    private var editorComposing = false
-
-    override fun onCreate() {
-        super.onCreate()
-        lexicon = Candidates.parse(assets.open("lexicon.tsv").bufferedReader().use { it.readText() })
-    }
-    override fun onCreateCandidatesView(): View = TextView(this).apply {
-        setBackgroundColor(Color.rgb(245, 235, 225))
-        setTextColor(Color.BLACK)
-        textSize = 15f
-        setPadding(20, 12, 20, 12)
-        candidatesView = this
-        refresh()
-    }
-    override fun onCreateInputView(): View = TextView(this).apply {
-        setBackgroundColor(Color.rgb(245, 235, 225))
-        setTextColor(Color.BLACK)
-        textSize = 16f
-        setPadding(20, 16, 20, 16)
-        status = this
-        refresh()
-    }
-    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
-        super.onStartInput(attribute, restarting)
-        composer.clear()
-        selection.reset()
-        editorComposing = false
-        val inputType = attribute?.inputType ?: 0
-        val variation = inputType and InputType.TYPE_MASK_VARIATION
-        val inputClass = inputType and InputType.TYPE_MASK_CLASS
-        secureField = (inputClass == InputType.TYPE_CLASS_TEXT &&
-            (variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
-             variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
-             variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
-            (inputClass == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
-        setCandidatesViewShown(!secureField)
-        refresh()
-    }
-    override fun onFinishInput() {
-        super.onFinishInput()
-        composer.clear()
-        selection.reset()
-        editorComposing = false
-        setCandidatesViewShown(false)
-    }
-    private fun options(): List<String> = if (composer.hasActive()) emptyList() else lexicon.lookup(composer.completed())
-    private fun refresh() {
-        if (secureField) {
-            status?.text = "密碼欄位：注音組字停用"
-            candidatesView?.text = ""
-            return
-        }
-        val opts = options()
-        val displayText = if (!composer.hasInput) "斲然注音 v0.10｜實體鍵盤測試" else
-            "注音：${composer.display()}\n" +
-            (if (composer.hasActive()) "組字中：聲調結束音節；無聲調按空白"
-             else if (opts.isEmpty()) "測試詞庫無候選字（Enter 可提交注音）"
-             else opts.take(9).mapIndexed { i, word -> "${if (i == selection.index) "▶" else ""}F${i + 1}:$word" }.joinToString("  "))
-        status?.text = displayText
-        candidatesView?.text = displayText
-        if (composer.hasInput) {
-            currentInputConnection?.setComposingText(composer.display(), 1)
-            editorComposing = true
-        } else if (editorComposing) {
-            currentInputConnection?.finishComposingText()
-            editorComposing = false
-        }
-    }
-    private fun commit(text: String) {
-        currentInputConnection?.commitText(text, 1)
-        editorComposing = false
-        composer.clear()
-        selection.reset()
-        refresh()
-    }
-    private fun cancel() {
-        composer.clear()
-        selection.reset()
-        if (editorComposing) {
-            currentInputConnection?.setComposingText("", 1)
-            currentInputConnection?.finishComposingText()
-            editorComposing = false
-        }
-        refresh()
-    }
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (secureField) return super.onKeyDown(keyCode, event)
-        if (event.repeatCount > 0 && composer.hasInput && keyCode in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F9) return true
-        // F1–F9 select candidates without stealing the number keys used by Zhuyin.
-        // Reserve all modified shortcuts for Android/the foreground application.
-        if (composer.hasInput && !composer.hasActive() &&
-            !event.isCtrlPressed && !event.isAltPressed && !event.isMetaPressed &&
-            !event.isShiftPressed && keyCode in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F9) {
-            val chosen = selection.choose(keyCode - KeyEvent.KEYCODE_F1 + 1, options())
-            if (chosen != null) commit(chosen)
-            return true
-        }
-        if (event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) return super.onKeyDown(keyCode, event)
-        if (composer.hasInput) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_DEL -> { composer.backspace(); selection.reset(); if (!composer.hasInput) cancel() else refresh(); return true }
-                KeyEvent.KEYCODE_ESCAPE -> { cancel(); return true }
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> if (!composer.hasActive()) { selection.move(-1, options().size); refresh(); return true }
-                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> if (!composer.hasActive()) { selection.move(1, options().size); refresh(); return true }
-                KeyEvent.KEYCODE_SPACE -> {
-                    if (composer.hasActive()) { composer.closeToneless(); selection.reset(); refresh() }
-                    else commit(selection.selected(options()) ?: composer.display())
-                    return true
-                }
-                KeyEvent.KEYCODE_ENTER -> {
-                    if (composer.hasActive()) composer.closeToneless()
-                    commit(selection.selected(options()) ?: composer.display())
-                    return true
-                }
-            }
-
-        }
-        // Do not let shifted keys bypass a pending composition and leak into the editor.
-        if (event.isShiftPressed) return if (composer.hasInput) true else super.onKeyDown(keyCode, event)
-        // Android keyboard layouts can report punctuation differently. Prefer physical
-        // key codes for the keys essential to standard Zhuyin; use unicode for letters.
-        val physical = when (keyCode) {
-            KeyEvent.KEYCODE_SEMICOLON -> ';'
-            KeyEvent.KEYCODE_COMMA -> ','
-            KeyEvent.KEYCODE_PERIOD -> '.'
-            KeyEvent.KEYCODE_SLASH -> '/'
-            KeyEvent.KEYCODE_MINUS -> '-'
-            else -> null
-        }
-        // Prefer Android key codes for US-QWERTY physical positions, even when the
-        // Android keyboard language/layout changes the Unicode character.
-        val key = physical ?: PhysicalKeys.fromKeyCode(keyCode)
-        val symbol = key?.let(Zhuyin.keys::get)
-            ?: return if (composer.hasInput) true else super.onKeyDown(keyCode, event)
-        if (composer.push(symbol)) { selection.reset(); refresh(); return true }
-        // Never leak a rejected Zhuyin key into the editor while composing.
-        // Consume rejected mapped keys, including at the start of a syllable.
-        // Otherwise a failed syllable could insert stray Latin text into the editor.
-        return true
-    }
+/** Offline IME: touch and physical events share one synchronous controller. */
+class ZhuoranImeService:InputMethodService() {
+ private var controller:InputController?=null
+ private val bridge=AndroidEditorBridge()
+ private val mapper=PhysicalKeyMapper()
+ private var session=0L
+ private var bypass=false
+ private var bar:CandidateBarView?=null
+ private var keyboard:TouchKeyboardView?=null
+ private var actionLabel="↵"
+ private val consumedKeys=mutableSetOf<Int>()
+ private fun send(action:InputAction):Boolean {
+  val c=controller?:return false
+  val result=c.handle(action)
+  if(action==InputAction.Backspace && !result.consumed)bridge.deleteBefore(session)
+  else if(result.consumed)bridge.apply(session,result)
+  render(result)
+  return result.consumed
+ }
+ private fun render(result:InputResult) {
+  mapper.mode=result.mode;mapper.hasComposition=result.hasComposition;mapper.selecting=result.snapshot.candidates!=null
+  keyboard?.renderMode(TouchMode.valueOf(result.mode.name));bar?.render(result)
+ }
+ override fun onCreateCandidatesView():View=CandidateBarView(this).also {view->
+  bar=view
+  val generation=session
+  view.onAction={action->if(session==generation)send(action)}
+  controller?.current()?.let(::render)
+ }
+ override fun onCreateInputView():View=TouchKeyboardView(this,
+  onSymbol={send(InputAction.zhuyinKey(it))},onText={send(InputAction.Literal(it))},
+  onSpace={send(InputAction.Space)},onDelete={send(InputAction.Backspace)},
+  onEnter={send(InputAction.Enter)},onCancel={send(InputAction.Escape)},
+  onSwitchIme={(getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()},
+  onModeChange={send(InputAction.SwitchMode(InputMode.valueOf(it.name)))}
+ ).also {keyboard=it;it.start(bypass,false,actionLabel);controller?.current()?.let(::render)}
+ override fun onStartInput(attribute:EditorInfo?,restarting:Boolean) {
+  super.onStartInput(attribute,restarting)
+  bridge.finish(session);controller?.close();controller=null;mapper.reset();consumedKeys.clear()
+  val info=attribute?:EditorInfo()
+  bypass=EditorPolicy.bypassChinese(info.inputType)
+  var available=!bypass
+  val engine:ConversionEngine=if(bypass)UnavailableEngine() else try {
+   val installer=DictionaryInstaller(File(filesDir,"dictionaries"))
+   val dictionary=try {installer.install {assets.open("chewing/$it")}} catch(_:Exception) {installer.active()?:throw IllegalStateException("No verified dictionary")}
+   ChewingEngine.open(dictionary,File(filesDir,"chewing-user"))
+  } catch(_:Exception) {available=false;UnavailableEngine()} catch(_:LinkageError) {available=false;UnavailableEngine()}
+  controller=InputController(engine,available)
+  if(bypass)controller!!.reset(InputMode.ENGLISH)
+  val ic=currentInputConnection
+  if(ic!=null)session=bridge.begin(ic,info)
+  actionLabel=when(info.imeOptions and EditorInfo.IME_MASK_ACTION) {EditorInfo.IME_ACTION_DONE->"完成";EditorInfo.IME_ACTION_GO->"前往";EditorInfo.IME_ACTION_NEXT->"下一步";EditorInfo.IME_ACTION_SEARCH->"搜尋";EditorInfo.IME_ACTION_SEND->"傳送";else->"↵"}
+  keyboard?.start(bypass,false,actionLabel)
+  val generation=session
+  bar?.onAction={action->if(session==generation)send(action)}
+  setCandidatesViewShown(!bypass)
+  render(controller!!.current())
+ }
+ override fun onFinishInput() {
+  bridge.finish(session);controller?.close();controller=null;mapper.reset();consumedKeys.clear();setCandidatesViewShown(false)
+  super.onFinishInput()
+ }
+ override fun onDestroy(){controller?.close();bridge.finish(session);super.onDestroy()}
+ override fun onUpdateSelection(oldSelStart:Int,oldSelEnd:Int,newSelStart:Int,newSelEnd:Int,candidatesStart:Int,candidatesEnd:Int) {
+  super.onUpdateSelection(oldSelStart,oldSelEnd,newSelStart,newSelEnd,candidatesStart,candidatesEnd)
+  if(!bridge.acceptSelection(session,newSelStart,newSelEnd)) {
+   bridge.finish(session)
+   controller?.reset(if(bypass)InputMode.ENGLISH else mapper.mode)
+   currentInputConnection?.let {
+    val updated=EditorInfo().apply { currentInputEditorInfo?.let {old->inputType=old.inputType;imeOptions=old.imeOptions};initialSelStart=newSelStart;initialSelEnd=newSelEnd }
+    session=bridge.begin(it,updated)
+   }
+   val generation=session;bar?.onAction={action->if(session==generation)send(action)}
+   controller?.current()?.let(::render)
+  }
+ }
+ override fun onKeyDown(keyCode:Int,event:KeyEvent):Boolean {
+  if(mapper.suppressRepeat(event,consumedKeys))return true
+  val action=mapper.keyDown(event)?:return super.onKeyDown(keyCode,event)
+  if(send(action)){consumedKeys+=keyCode;return true}
+  return super.onKeyDown(keyCode,event)
+ }
+ override fun onKeyUp(keyCode:Int,event:KeyEvent):Boolean {
+  mapper.keyUp(event)?.let {if(!bypass && send(it))return true}
+  if(consumedKeys.remove(keyCode))return true
+  return super.onKeyUp(keyCode,event)
+ }
 }

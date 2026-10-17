@@ -20,9 +20,11 @@ class Composer {
             return true
         }
         if (symbol !in Zhuyin.keys.values) return false
-        val proposed = Zhuyin.normalize(active.toString() + symbol) ?: return false
+        val updated = Zhuyin.replaceComponent(active.toString(), symbol) ?: return false
+        val proposed = Zhuyin.normalize(updated) ?: return false
         if (!Zhuyin.isPlausible(proposed)) return false
-        active.append(symbol)
+        active.clear()
+        active.append(updated)
         return true
     }
     fun closeToneless(): Boolean {
