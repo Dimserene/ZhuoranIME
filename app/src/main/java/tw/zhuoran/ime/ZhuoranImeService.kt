@@ -99,7 +99,7 @@ class ZhuoranImeService : InputMethodService() {
         }
         val opts = options()
         status?.text = when {
-            !composer.hasInput -> "斲然注音 v0.11｜點按注音，或使用外接鍵盤"
+            !composer.hasInput -> "斲然注音 v0.12｜點按注音，或使用外接鍵盤"
             composer.hasActive() -> "${composer.display()}　空白結束一聲音節"
             opts.isEmpty() -> "${composer.display()}　測試詞庫無候選字"
             else -> composer.display()

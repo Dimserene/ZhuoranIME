@@ -32,6 +32,12 @@ object Zhuyin {
         if (initial != null && initial in "ㄓㄔㄕㄖㄗㄘㄙ" && medial != null && medial in "ㄧㄩ") return false
         return initial != null || medial != null || final != null
     }
+    /** Replace only this component class, preserving other keys' entry order for backspace. */
+    fun replaceComponent(raw: String, symbol: Char): String? {
+        val group = listOf(initials, medials, finals).firstOrNull { symbol in it } ?: return null
+        if (symbol in raw) return raw
+        return raw.filterNot { it in group } + symbol
+    }
     fun normalize(raw: String): String? {
         if (raw.isEmpty()) return null
         val groups = listOf(initials, medials, finals, tones)
