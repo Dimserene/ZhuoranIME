@@ -1,25 +1,24 @@
-# Zhuoran IME v0.10 — Android 實體鍵盤注音原型
+# Zhuoran IME v0.11 — 觸控與外接鍵盤注音原型
 
-## 本次新增
-- `.github/workflows/android-build.yml`：GitHub Actions 自動建置 debug APK 並提供 Artifact。
-- 使用 JDK 17、Gradle 8.9、Android SDK 35。
-- 修正密碼欄位判斷，避免一般數字欄位被誤判。
-- 版本號 0.10.0。
+## 使用
+- Android 8.0 以上。安裝後在系統「鍵盤清單及預設」啟用「斲然注音」。
+- 手機可直接點按標準注音鍵；外接 QWERTY 鍵盤仍使用 Windows 標準注音鍵位。
+- 注音允許亂序，例如 ㄧㄒㄤˇ → ㄒㄧㄤˇ。聲調結束音節；一聲按空白結束音節。
+- 點候選字提交；組字結束後按空白／Enter 提交目前候選字。
+- 外接鍵盤可用方向鍵選字、F1–F9 提交候選字，Esc 取消。
+- ABC 切換英文，⇧ 切換大小寫，?123 開啟數字符號。⌨ 開啟系統輸入法選擇。
+- 切換語系或插入標點時，會先提交目前候選字；詞庫無對應時保留注音文字。
+- 取消可清空目前組字；⌫ 在組字中回刪，否則刪除選取文字或游標前一個字元。
+- 無組字時，確認鍵依欄位執行完成／搜尋／傳送等動作，或輸入 Enter。
+- 密碼欄位停用注音及候選字，提供英文／數字輸入。一般數字欄位預設數字符號。
 
-## GitHub 取得 APK
-1. 將本專案全部內容（包含 `.github`）推送至 GitHub 儲存庫根目錄。
-2. 到 Actions → `Build Zhuoran IME APK` → `Run workflow`。
-3. Build 成功後下載 `ZhuoranIME-debug-apk` Artifact，解壓得到 `app-debug.apk`。
-4. 在 Android 裝置安裝，於系統輸入法設定啟用「斲然注音」。僅供測試，請勿輸入敏感資料。
+## 驗證與限制
+- v0.10 已在 GitHub Actions 成功編出 APK；v0.11 建置與測試結果請看 Actions。
+- CI 執行觸控鍵位完整性、亂序組字、切換模式提交，以及既有核心回歸測試後，才產生 APK。
+- 尚未在三星手機實測觸控介面與第三方 App 相容性。
+- 詞庫仍僅有少量測試詞，不能取代完整日常輸入法；注音合法性、連續斷詞、預測及大量詞彙尚未完整。
+- 目前無滑行輸入、語音輸入、表情符號面板或長按連刪。
 
-## 驗證限制
-- 本環境缺少 Android SDK/Gradle，**尚未實際完成 APK 編譯**；CI 第一次執行可能需要依錯誤訊息修正。
-- 純 Kotlin 核心測試與 ZIP 完整性可在本機驗證。
-- 尚未在三星手機實測；詞庫僅有少量測試詞，不能取代 Gboard。
-- 注音合法性與連續斷詞仍不完整。
-
-## 核心測試
-```bash
-kotlinc app/src/main/java/tw/zhuoran/ime/{Zhuyin,Composer,Candidates,CandidateSelection,PhysicalKeys}.kt tests/ComposerSmokeTest.kt -include-runtime -d /tmp/zhuoran-tests.jar
-java -jar /tmp/zhuoran-tests.jar
-```
+## 建置
+GitHub Actions → Build Zhuoran IME APK → 成功執行紀錄 → ZhuoranIME-debug-apk。
+環境為 JDK 17、Gradle 8.9、Android SDK 35。

@@ -7,14 +7,23 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
+import android.widget.LinearLayout
+import android.widget.HorizontalScrollView
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
+import android.view.Gravity
 
-/** Physical keyboard IME proof of concept. Not yet a production IME. */
+/** Offline touch and physical keyboard IME prototype. */
 class ZhuoranImeService : InputMethodService() {
     private val composer = Composer()
     private val selection = CandidateSelection()
     private lateinit var lexicon: Candidates
     private var status: TextView? = null
-    private var candidatesView: TextView? = null
+    private var candidateRow: LinearLayout? = null
+    private var candidateScroll: HorizontalScrollView? = null
+    private var keyboard: TouchKeyboardView? = null
+    private var numericField = false
+    private var actionLabel = "↵"
     private var secureField = false
     private var editorComposing = false
 
@@ -22,22 +31,32 @@ class ZhuoranImeService : InputMethodService() {
         super.onCreate()
         lexicon = Candidates.parse(assets.open("lexicon.tsv").bufferedReader().use { it.readText() })
     }
-    override fun onCreateCandidatesView(): View = TextView(this).apply {
-        setBackgroundColor(Color.rgb(245, 235, 225))
-        setTextColor(Color.BLACK)
-        textSize = 15f
-        setPadding(20, 12, 20, 12)
-        candidatesView = this
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    override fun onCreateCandidatesView(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(Color.rgb(250, 235, 225))
+        status = TextView(this@ZhuoranImeService).apply {
+            setTextColor(Color.rgb(75, 60, 50))
+            textSize = 13f
+            maxLines = 2
+            setPadding(dp(10), dp(5), dp(10), dp(3))
+        }
+        addView(status)
+        candidateRow = LinearLayout(this@ZhuoranImeService)
+        candidateScroll = HorizontalScrollView(this@ZhuoranImeService).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(candidateRow)
+        }
+        addView(candidateScroll, LinearLayout.LayoutParams(-1, dp(43)))
         refresh()
     }
-    override fun onCreateInputView(): View = TextView(this).apply {
-        setBackgroundColor(Color.rgb(245, 235, 225))
-        setTextColor(Color.BLACK)
-        textSize = 16f
-        setPadding(20, 16, 20, 16)
-        status = this
-        refresh()
-    }
+    override fun onCreateInputView(): View = TouchKeyboardView(
+        this, onSymbol = ::pushSymbol, onText = ::literalText,
+        onSpace = ::touchSpace, onDelete = ::touchDelete, onEnter = ::touchEnter,
+        onCancel = ::cancel,
+        onSwitchIme = { (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker() },
+        onModeChange = ::resolvePending
+    ).also { keyboard = it; it.start(secureField, numericField, actionLabel) }
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         composer.clear()
@@ -51,6 +70,16 @@ class ZhuoranImeService : InputMethodService() {
              variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
              variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)) ||
             (inputClass == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
+        numericField = inputClass == InputType.TYPE_CLASS_NUMBER || inputClass == InputType.TYPE_CLASS_PHONE || inputClass == InputType.TYPE_CLASS_DATETIME
+        actionLabel = when (attribute?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)) {
+            EditorInfo.IME_ACTION_DONE -> "完成"
+            EditorInfo.IME_ACTION_GO -> "前往"
+            EditorInfo.IME_ACTION_NEXT -> "下一步"
+            EditorInfo.IME_ACTION_SEARCH -> "搜尋"
+            EditorInfo.IME_ACTION_SEND -> "傳送"
+            else -> "↵"
+        }
+        keyboard?.start(secureField, numericField, actionLabel)
         setCandidatesViewShown(!secureField)
         refresh()
     }
@@ -65,17 +94,31 @@ class ZhuoranImeService : InputMethodService() {
     private fun refresh() {
         if (secureField) {
             status?.text = "密碼欄位：注音組字停用"
-            candidatesView?.text = ""
+            candidateRow?.removeAllViews()
             return
         }
         val opts = options()
-        val displayText = if (!composer.hasInput) "斲然注音 v0.10｜實體鍵盤測試" else
-            "注音：${composer.display()}\n" +
-            (if (composer.hasActive()) "組字中：聲調結束音節；無聲調按空白"
-             else if (opts.isEmpty()) "測試詞庫無候選字（Enter 可提交注音）"
-             else opts.take(9).mapIndexed { i, word -> "${if (i == selection.index) "▶" else ""}F${i + 1}:$word" }.joinToString("  "))
-        status?.text = displayText
-        candidatesView?.text = displayText
+        status?.text = when {
+            !composer.hasInput -> "斲然注音 v0.11｜點按注音，或使用外接鍵盤"
+            composer.hasActive() -> "${composer.display()}　空白結束一聲音節"
+            opts.isEmpty() -> "${composer.display()}　測試詞庫無候選字"
+            else -> composer.display()
+        }
+        candidateRow?.removeAllViews()
+        candidateScroll?.visibility = View.VISIBLE
+        opts.take(9).forEachIndexed { i, word ->
+            candidateRow?.addView(TextView(this).apply {
+                text = word
+                textSize = 22f
+                gravity = Gravity.CENTER
+                contentDescription = "候選字 ${i + 1}：$word"
+                setTextColor(if (i == selection.index) Color.rgb(140, 62, 25) else Color.BLACK)
+                setPadding(dp(14), dp(4), dp(14), dp(4))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { commit(word) }
+            }, LinearLayout.LayoutParams(-2, -1))
+        }
         if (composer.hasInput) {
             currentInputConnection?.setComposingText(composer.display(), 1)
             editorComposing = true
@@ -101,8 +144,49 @@ class ZhuoranImeService : InputMethodService() {
         }
         refresh()
     }
+    private fun pushSymbol(symbol: Char) {
+        if (secureField) return
+        if (composer.push(symbol)) { selection.reset(); refresh() }
+    }
+    private fun resolvePending() {
+        if (composer.hasInput) commit(TouchLayout.pendingText(composer, lexicon, selection))
+    }
+    private fun literalText(text: String) {
+        resolvePending()
+        currentInputConnection?.commitText(text, 1)
+    }
+    private fun touchSpace() {
+        if (composer.hasActive()) { composer.closeToneless(); selection.reset(); refresh() }
+        else if (composer.hasInput) resolvePending()
+        else currentInputConnection?.commitText(" ", 1)
+    }
+    private fun touchDelete() {
+        if (composer.hasInput) {
+            composer.backspace()
+            selection.reset()
+            if (!composer.hasInput) cancel() else refresh()
+            return
+        }
+        val ic = currentInputConnection ?: return
+        if (!ic.getSelectedText(0).isNullOrEmpty()) ic.commitText("", 1)
+        else if (!ic.deleteSurroundingTextInCodePoints(1, 0)) {
+            val before = ic.getTextBeforeCursor(2, 0).orEmpty()
+            val count = if (before.length >= 2 && Character.isSurrogatePair(before[before.length - 2], before[before.length - 1])) 2 else 1
+            ic.deleteSurroundingText(count, 0)
+        }
+    }
+    private fun touchEnter() {
+        if (composer.hasInput) { resolvePending(); return }
+        val info = currentInputEditorInfo
+        val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
+        val allowAction = ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_ENTER_ACTION) == 0
+        if (allowAction && action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
+            if (currentInputConnection?.performEditorAction(action) == true) return
+        }
+        sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+    }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (secureField) return super.onKeyDown(keyCode, event)
+        if (secureField || numericField || keyboard?.isZhuyin == false) return super.onKeyDown(keyCode, event)
         if (event.repeatCount > 0 && composer.hasInput && keyCode in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F9) return true
         // F1–F9 select candidates without stealing the number keys used by Zhuyin.
         // Reserve all modified shortcuts for Android/the foreground application.
