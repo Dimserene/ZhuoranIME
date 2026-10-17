@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-17-chewing-engine-design.md`
 
-基準：`work/virtual-keyboard` 的 `22526cc555b911fad2a59a270181d698c7ef5fa6`。本文件尚未執行，不代表 native 整合或新 APK 已完成。
+基準：`work/virtual-keyboard` 的 `22526cc555b911fad2a59a270181d698c7ef5fa6`。本文件保留最初核准的計畫；本輪實作、實際驗證與尚未完成項目請見 `docs/validation/chewing-integration.md`，不以此計畫的勾選框取代驗證證據。
 
 ## Global Constraints
 

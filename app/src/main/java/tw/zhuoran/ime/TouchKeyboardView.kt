@@ -15,7 +15,7 @@ import android.widget.TextView
 
 internal enum class TouchMode { ZHUYIN, ENGLISH, SYMBOLS }
 
-/** Android views only: all composition stays in the service's shared Composer. */
+/** Android views only; the controller owns composition and mode. */
 internal class TouchKeyboardView(
     context: Context,
     private val onSymbol: (Char) -> Unit,
@@ -25,7 +25,7 @@ internal class TouchKeyboardView(
     private val onEnter: () -> Unit,
     private val onCancel: () -> Unit,
     private val onSwitchIme: () -> Unit,
-    private val onModeChange: () -> Unit
+    private val onModeChange: (TouchMode) -> Unit
 ) : LinearLayout(context) {
     private var mode = TouchMode.ZHUYIN
     val isZhuyin: Boolean get() = mode == TouchMode.ZHUYIN
@@ -52,10 +52,12 @@ internal class TouchKeyboardView(
         build()
     }
 
+    fun renderMode(next: TouchMode) {
+        if (mode != next) { mode = next; build() }
+    }
+
     private fun switchTo(next: TouchMode) {
-        onModeChange()
-        mode = next
-        build()
+        onModeChange(next)
     }
 
     private fun row(height: Int): LinearLayout = LinearLayout(context).also {
@@ -68,6 +70,7 @@ internal class TouchKeyboardView(
         row.addView(TextView(context).apply {
             text = label
             textSize = if (label.length > 2 && !label.contains('\n')) 13f else 18f
+            setAutoSizeTextTypeUniformWithConfiguration(10, 18, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
             typeface = Typeface.DEFAULT
             gravity = Gravity.CENTER
             includeFontPadding = false
@@ -98,8 +101,11 @@ internal class TouchKeyboardView(
                 val r = row(height)
                 keys.forEach { physical ->
                     val symbol = Zhuyin.keys.getValue(physical)
-                    val label = SpannableString("$physical\n$symbol").apply {
-                        setSpan(RelativeSizeSpan(0.5f), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val label: CharSequence = when {
+                        resources.configuration.fontScale >= 1.25f -> symbol.toString()
+                        resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE ->
+                            SpannableString("$symbol $physical").apply { setSpan(RelativeSizeSpan(0.55f), 2, 3, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+                        else -> SpannableString("$physical\n$symbol").apply { setSpan(RelativeSizeSpan(0.5f), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
                     }
                     key(r, label, symbol.toString(), action = { onSymbol(symbol) })
                 }
@@ -123,7 +129,7 @@ internal class TouchKeyboardView(
             action = { switchTo(if (mode == TouchMode.SYMBOLS && !secure) TouchMode.ZHUYIN else if (mode == TouchMode.SYMBOLS) TouchMode.ENGLISH else TouchMode.SYMBOLS) })
         key(bottom, if (mode == TouchMode.ZHUYIN || secure) "ABC" else "注音", special = true,
             action = { switchTo(if (mode == TouchMode.ZHUYIN || secure) TouchMode.ENGLISH else TouchMode.ZHUYIN) })
-        key(bottom, if (mode == TouchMode.ZHUYIN) "組字／空白" else "空白", weight = 2.7f, action = onSpace)
+        key(bottom, "空白", weight = 2.7f, action = onSpace)
         when (mode) {
             TouchMode.ZHUYIN -> key(bottom, "ㄦ", action = { onSymbol(Zhuyin.keys.getValue(TouchLayout.erKey)) })
             TouchMode.ENGLISH -> key(bottom, if (upper) "⇧●" else "⇧", "切換英文大小寫", special = true, action = { upper = !upper; build() })

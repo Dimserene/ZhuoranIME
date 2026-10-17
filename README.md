@@ -1,26 +1,40 @@
-# Zhuoran IME v0.12 — 觸控與外接鍵盤注音原型
+# 斲然注音 0.13 — 新酷音核心整合測試版
+
+Android 8.0 以上，支援 arm64-v8a 與 x86_64。離線使用隨 App 安裝的完整新酷音詞庫，停用自動學習，不需要網路權限。這是整合測試版，尚未在三星手機與日常使用的各個 App 實測。
 
 ## 使用
-- Android 8.0 以上。安裝後在系統「鍵盤清單及預設」啟用「斲然注音」。
-- 手機可直接點按標準注音鍵；外接 QWERTY 鍵盤仍使用 Windows 標準注音鍵位。
-- 同一個未結束音節內，聲母、介音與韻母分別自動替換；例如 ㄅㄚ 再按 ㄆ 成為 ㄆㄚ，再按 ㄛ 成為 ㄆㄛ。
-- 替換保留其餘注音；無效組合仍拒絕並保留原組字，已完成音節不受影響。
-- 注音允許亂序，例如 ㄧㄒㄤˇ → ㄒㄧㄤˇ。聲調結束音節；一聲按空白結束音節。
-- 點候選字提交；組字結束後按空白／Enter 提交目前候選字。
-- 外接鍵盤可用方向鍵選字、F1–F9 提交候選字，Esc 取消。
-- ABC 切換英文，⇧ 切換大小寫，?123 開啟數字符號。⌨ 開啟系統輸入法選擇。
-- 切換語系或插入標點時，會先提交目前候選字；詞庫無對應時保留注音文字。
-- 取消可清空目前組字；⌫ 在組字中回刪，否則刪除選取文字或游標前一個字元。
-- 無組字時，確認鍵依欄位執行完成／搜尋／傳送等動作，或輸入 Enter。
-- 密碼欄位停用注音及候選字，提供英文／數字輸入。一般數字欄位預設數字符號。
+
+- 安裝後到系統「鍵盤清單及預設」啟用「斲然注音」，再切換使用。與先前 CI 測試版簽章不同，需先移除舊版才能安裝；沒有覆蓋安裝驗證。
+- 虛擬鍵盤與外接 QWERTY 使用標準注音排列。聲母、介音、韻母可亂序輸入；同類注音自動替換。聲調完成音節，一聲按空白。
+- 連續輸入後仍是中文組字，可移動游標並回刪。有組字時空白或「選字」開啟游標左字的候選；句首對應第一字。
+- 點候選、數字 1–9／0 或 F1–F9 只更新組字，不立即提交。候選頁每頁最多十項，可上一頁／下一頁；外接 PageUp／PageDown 翻頁。
+- 選字中 Enter 確認候選；一般組字中 Enter 確認整句。下一次獨立 Enter 才執行 App 的傳送／搜尋等動作。按住 Enter 不會在組字確認後接著傳送。
+- Esc／取消先清未完成注音，其次關閉候選，再清除組字。⌫ 刪除目前注音或游標左字。
+- 中文組字上限 32 字；超過時保留原文並提示先確認，不自動送出前半句。
+- 無效注音會保留並阻止切換模式／插入標點，請修改、取消，或明確點「送出注音原文」。
+- ABC 切英文，?123 切數字符號，⇧ 切英文大小寫；外接 Shift 獨立按放切中英。⌨ 開啟系統輸入法選擇。
+- 密碼、數字、電話與日期欄位略過中文引擎；引擎無法載入時仍能輸入英文與切換輸入法。
 
 ## 驗證與限制
-- v0.10 已在 GitHub Actions 成功編出 APK；v0.11 建置與測試結果請看 Actions。
-- CI 執行觸控鍵位完整性、亂序組字、切換模式提交，以及既有核心回歸測試後，才產生 APK。
-- 尚未在三星手機實測觸控介面與第三方 App 相容性。
-- 詞庫仍僅有少量測試詞，不能取代完整日常輸入法；注音合法性、連續斷詞、預測及大量詞彙尚未完整。
-- 目前無滑行輸入、語音輸入、表情符號面板或長按連刪。
+
+具體建置、測試與雜湊紀錄見 `docs/validation/chewing-integration.md`。少量舊 TSV 僅保留為舊回歸測試資料，正式 service 不讀取或回退該詞庫。
+
+尚無滑行、語音、表情符號面板、長按連刪、個人詞庫管理及使用者學習。離開／重新開始欄位時會結束當前編輯器的 composing 區間並清空引擎狀態；不把未確認內容搬到下一個欄位。
 
 ## 建置
-GitHub Actions → Build Zhuoran IME APK → 成功執行紀錄 → ZhuoranIME-debug-apk。
-環境為 JDK 17、Gradle 8.9、Android SDK 35。
+
+固定環境：JDK 17、Gradle 8.9、Kotlin 2.0.21、Android SDK 35、NDK 28.2.13676358、CMake 3.22.1、Rust 1.88.0。
+
+```bash
+rustup toolchain install 1.88.0 --profile minimal --component rust-src
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+bash native/build_chewing.sh android
+bash native/build_host_jni.sh
+python3 tools/package_assets.py
+gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+gradle :app:connectedDebugAndroidTest
+python3 tools/check_apk.py app/build/outputs/apk/debug/app-debug.apk --lock third_party/chewing.lock.json --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt"
+bash tools/package_relink.sh
+```
+
+來源固定於 `third_party/chewing.lock.json`。核心、詞庫及依賴授權全文隨 APK 附上；交付必須同時提供對應 App 原始碼與原生重連結材料，見 `docs/validation/relink-materials.md`。不包含第三方 GPL Android 包裝程式碼。私密簽章金鑰不得公開或放入交付包。
